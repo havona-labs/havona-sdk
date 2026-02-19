@@ -1,21 +1,8 @@
 """
-Documents resource — extract structured data from trade documents.
+Documents resource — extract structured fields from trade documents.
 
-Two extraction pathways exist:
-
-1. **ETR document extraction** (``extract``) — ``POST /api/etr/extract``
-
-   Extracts structured fields from Electronic Trade Record PDFs:
-   Commercial Invoice, Bill of Lading, Certificate of Origin.
-   Uses Gemini AI vision.  **Does not persist anything.**
-
-2. **Trade blotting extraction** (``extract_trade``) — ``POST /api/blotting/extract-pdf``
-
-   Extracts TradeContract fields from unstructured trade documents
-   (email confirmations, PDFs, Excel files).  **Does not persist anything.**
-
-After extraction, call ``client.trades.create(**result.to_trade_fields())``
-to save the extracted data.
+Neither extraction endpoint persists anything. Call client.trades.create() with
+the result to save the data.
 """
 
 import os
@@ -29,22 +16,6 @@ if TYPE_CHECKING:
 
 
 class DocumentsResource:
-    """
-    Extract structured data from trade documents.
-
-    Usage::
-
-        # Extract a Commercial Invoice PDF
-        result = client.documents.extract("invoice.pdf", "COMMERCIAL_INVOICE")
-        print(result.fields)  # extracted key-value pairs
-        print(result.confidence)  # 0.0 – 1.0
-
-        # Save the extracted data as a trade
-        trade = client.trades.create(**result.to_trade_fields(), status="DRAFT")
-
-        # List supported ETR document types
-        types = client.documents.supported_types()
-    """
 
     def __init__(self, client: "HavonaClient"):
         self._client = client
@@ -55,36 +26,7 @@ class DocumentsResource:
         document_type: str,
         mode: str = "native",
     ) -> ExtractionResult:
-        """
-        Extract structured fields from an ETR document PDF.
-
-        Sends the PDF to ``POST /api/etr/extract`` for Gemini AI processing.
-        **This does not save anything** — call ``client.trades.create()`` with
-        the result to persist.
-
-        Args:
-            file_path: Path to the PDF file.
-            document_type: One of ``COMMERCIAL_INVOICE``, ``BILL_OF_LADING``,
-                ``CERTIFICATE_OF_ORIGIN``.
-            mode: Extraction mode — ``"native"`` (Gemini vision, default) or
-                ``"text"`` (text extraction fallback).
-
-        Returns:
-            :class:`~havona_sdk.models.ExtractionResult`
-
-        Example::
-
-            result = client.documents.extract(
-                "invoice.pdf",
-                document_type="COMMERCIAL_INVOICE",
-            )
-            # Inspect extracted fields
-            print(result.fields.get("invoiceNumber"))
-            print(result.confidence)
-
-            # Convert to a trade-creation payload
-            trade = client.trades.create(**result.to_trade_fields())
-        """
+        """Extract fields from an ETR PDF (COMMERCIAL_INVOICE, BILL_OF_LADING, etc.). Nothing is saved."""
         path = Path(file_path)
         with open(path, "rb") as fh:
             files = {"file": (path.name, fh, "application/pdf")}
@@ -97,30 +39,8 @@ class DocumentsResource:
             )
         return ExtractionResult.from_dict(resp.json())
 
-    def extract_trade(
-        self,
-        file_path: str,
-    ) -> ExtractionResult:
-        """
-        Extract TradeContract fields from an unstructured trade document.
-
-        Sends the file to ``POST /api/blotting/extract-pdf`` which uses the
-        blotting agent to identify trade details from email confirmations,
-        PDFs, and spreadsheets.
-
-        **This does not save anything.**
-
-        Args:
-            file_path: Path to the document file (PDF, Excel, etc.).
-
-        Returns:
-            :class:`~havona_sdk.models.ExtractionResult`
-
-        Example::
-
-            result = client.documents.extract_trade("email_confirmation.pdf")
-            trade = client.trades.create(**result.to_trade_fields(), status="DRAFT")
-        """
+    def extract_trade(self, file_path: str) -> ExtractionResult:
+        """Extract TradeContract fields from an unstructured document (email, PDF, Excel). Nothing is saved."""
         path = Path(file_path)
         with open(path, "rb") as fh:
             content_type = _guess_content_type(path)
@@ -133,12 +53,6 @@ class DocumentsResource:
         return ExtractionResult.from_dict(resp.json())
 
     def supported_types(self) -> List[ETRType]:
-        """
-        Return the list of ETR document types supported by the extraction service.
-
-        Returns:
-            List of :class:`~havona_sdk.models.ETRType` objects.
-        """
         resp = self._client._request("GET", "/api/etr/types")
         raw = resp.json()
         # Server may return a list or a dict with a "types" key

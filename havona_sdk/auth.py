@@ -1,13 +1,4 @@
-"""
-Auth0 token management for the Havona SDK.
-
-Supports three grant types:
-- Password grant: username + password → access token  (for interactive users)
-- Client credentials: client_id + client_secret → access token  (for M2M / services)
-- Static token: inject a pre-obtained token directly
-
-Tokens are cached and re-fetched automatically when they expire.
-"""
+"""Auth0 token management — password grant, client credentials, and static token."""
 
 import time
 from typing import Optional
@@ -23,35 +14,13 @@ class _TokenCache:
     def __init__(self, access_token: str, expires_in: int = 86400):
         self.access_token = access_token
         # Subtract 60 s so we refresh slightly before actual expiry
-        self._expires_at = time.monotonic() + expires_in - 60
+        self._expires_at = time.monotonic() + expires_in - 60  # refresh slightly early
 
     def is_valid(self) -> bool:
         return time.monotonic() < self._expires_at
 
 
 class Auth0:
-    """
-    Auth0 token provider for the Havona API.
-
-    Use the factory classmethods rather than instantiating directly:
-
-        # Interactive user (password grant)
-        auth = Auth0.from_password(
-            domain="your-tenant.us.auth0.com",
-            audience="https://api.yourdomain.com",
-            client_id="...",
-            username="trader@example.com",
-            password="...",
-        )
-
-        # Service account (M2M client credentials)
-        auth = Auth0.from_client_credentials(
-            domain="your-tenant.us.auth0.com",
-            audience="https://api.yourdomain.com",
-            client_id="...",
-            client_secret="...",
-        )
-    """
 
     def __init__(
         self,
@@ -72,15 +41,7 @@ class Auth0:
         self._cache: Optional[_TokenCache] = None
 
     @classmethod
-    def from_password(
-        cls,
-        domain: str,
-        audience: str,
-        client_id: str,
-        username: str,
-        password: str,
-    ) -> "Auth0":
-        """Create an Auth0 provider using the Resource Owner Password grant."""
+    def from_password(cls, domain, audience, client_id, username, password) -> "Auth0":
         return cls(
             domain=domain,
             audience=audience,
@@ -90,14 +51,7 @@ class Auth0:
         )
 
     @classmethod
-    def from_client_credentials(
-        cls,
-        domain: str,
-        audience: str,
-        client_id: str,
-        client_secret: str,
-    ) -> "Auth0":
-        """Create an Auth0 provider using the M2M Client Credentials grant."""
+    def from_client_credentials(cls, domain, audience, client_id, client_secret) -> "Auth0":
         return cls(
             domain=domain,
             audience=audience,
@@ -106,7 +60,6 @@ class Auth0:
         )
 
     def get_token(self, force_refresh: bool = False) -> str:
-        """Return a valid access token, fetching a new one if necessary."""
         if not force_refresh and self._cache and self._cache.is_valid():
             return self._cache.access_token
 
@@ -118,7 +71,6 @@ class Auth0:
         return self._cache.access_token
 
     def _fetch_token(self) -> dict:
-        """Request a new token from Auth0."""
         url = f"https://{self._domain}/oauth/token"
 
         if self._username and self._password:
@@ -163,14 +115,7 @@ class Auth0:
 
 
 class StaticToken:
-    """
-    A no-op token provider that returns a pre-obtained bearer token as-is.
-
-    Useful when you already have a token from elsewhere (e.g. from a web app
-    session) and don't need automatic refresh.
-
-        client = HavonaClient.from_token(base_url="...", token=my_jwt)
-    """
+    """Pre-obtained bearer token with no refresh logic."""
 
     def __init__(self, token: str):
         self._token = token

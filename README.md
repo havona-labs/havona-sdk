@@ -2,9 +2,7 @@
 
 Python client for the [Havona](https://github.com/havona-labs) trade finance API.
 
-Havona is a dual-persistence trade contract platform — every write is committed to both a fast GraphQL layer (DGraph) and a confidential EVM blockchain (TEE-based audit trail).
-
----
+Havona dual-persists everything: writes land in DGraph (fast queries) and on a confidential EVM chain (TEE-backed audit trail).
 
 ## Install
 
@@ -13,8 +11,6 @@ pip install havona-sdk
 ```
 
 Requires Python 3.9+ and `requests`.
-
----
 
 ## Quick start
 
@@ -31,49 +27,33 @@ client = HavonaClient.from_credentials(
     password=os.environ["HAVONA_PASSWORD"],
 )
 
-# List trades
 trades = client.trades.list(limit=10)
-for t in trades:
-    print(t.contract_no, t.status)
-
-# Check blockchain connection
 status = client.blockchain.status()
-print(status.connected, status.chain_id)
 ```
 
----
-
-## Authentication
-
-Three modes are supported:
+## Auth
 
 ```python
-# 1. Username + password (interactive users)
+# Password grant (user)
 client = HavonaClient.from_credentials(base_url=..., ..., username=..., password=...)
 
-# 2. M2M client credentials (service accounts)
+# Client credentials (M2M / service account)
 client = HavonaClient.from_m2m(base_url=..., ..., auth0_client_id=..., auth0_client_secret=...)
 
-# 3. Inject a pre-obtained bearer token
+# Pre-obtained token
 client = HavonaClient.from_token(base_url=..., token=my_jwt)
 ```
 
-Tokens obtained via Auth0 are cached in memory and refreshed automatically when they expire.
-
----
+Tokens are cached and refreshed automatically.
 
 ## Resources
 
-### Trades — `client.trades`
+### `client.trades`
 
 ```python
-# List
 trades = client.trades.list(limit=100)
+trade  = client.trades.get("trade-uuid")
 
-# Get by ID
-trade = client.trades.get("trade-uuid")
-
-# Create
 trade = client.trades.create(
     contract_no="TC-2026-001",
     contract_type="SPOT",
@@ -82,42 +62,29 @@ trade = client.trades.create(
     buyer_id="member-uuid",
 )
 
-# Update
 client.trades.update(trade.id, status="ACTIVE")
-
-# Assign a private book classification
 client.trades.assign_book(trade.id, "FX_BOOK_A")
 ```
 
-### Documents — `client.documents`
+### `client.documents`
 
-ETR extraction and trade blotting use the same pattern: extract fields from a PDF, then save with `client.trades.create()`.
+Extract fields from a PDF, then save with `client.trades.create()`.
+Extraction endpoints return data only — nothing is persisted until you call `create()`.
 
 ```python
-# Extract a Commercial Invoice (does NOT save anything)
+# ETR document (Commercial Invoice, Bill of Lading, Certificate of Origin)
 result = client.documents.extract("invoice.pdf", "COMMERCIAL_INVOICE")
-print(result.fields, result.confidence)
+trade  = client.trades.create(**result.to_trade_fields(), status="DRAFT")
 
-# Convert extracted fields and save as a trade
-trade = client.trades.create(**result.to_trade_fields(), status="DRAFT")
-
-# Extract trade fields from an unstructured document (email / Excel)
+# Unstructured document (email confirmation, Excel)
 result = client.documents.extract_trade("email_confirmation.pdf")
 
-# List supported ETR document types
+# Supported document types
 for t in client.documents.supported_types():
     print(t.id, t.name)
 ```
 
-**ETR vs /dynamic — what goes where:**
-
-| Step | API | What it does |
-|------|-----|-------------|
-| Extract | `POST /api/etr/extract` | AI extracts fields from PDF. **No persistence.** |
-| Blot | `POST /api/blotting/extract-pdf` | AI extracts trade fields from unstructured doc. **No persistence.** |
-| Save | `POST /dynamic` (via `client.trades.create`) | Persists to DGraph + blockchain. |
-
-### Agents — `client.agents`
+### `client.agents`
 
 ```python
 agents = client.agents.list()
@@ -125,7 +92,7 @@ rep    = client.agents.get_reputation(agent_id=1)
 print(rep.average_score, rep.total_feedback)
 ```
 
-### Blockchain — `client.blockchain`
+### `client.blockchain`
 
 ```python
 status = client.blockchain.status()
@@ -138,25 +105,17 @@ persistence = client.blockchain.get_persistence("trade-uuid")
 ### Raw passthrough
 
 ```python
-# GraphQL query
 data = client.graphql("""
-    query {
-        queryTradeContract(first: 5) {
-            id contractNo status
-        }
-    }
+    query { queryTradeContract(first: 5) { id contractNo status } }
 """)
 
-# Direct /dynamic write (for types not covered by resources)
 result = client.write("ETRDocument", {
     "documentType": "BILL_OF_LADING",
     "tradeContractId": trade_id,
 })
 ```
 
----
-
-## Error handling
+## Errors
 
 ```python
 from havona_sdk import HavonaError, AuthError, NotFoundError, ValidationError
@@ -164,45 +123,17 @@ from havona_sdk import HavonaError, AuthError, NotFoundError, ValidationError
 try:
     trade = client.trades.get("nonexistent-id")
 except NotFoundError:
-    print("Trade not found")
+    ...
 except AuthError:
-    print("Check your credentials")
-except ValidationError as e:
-    print(f"Bad payload: {e}")
+    ...
 except HavonaError as e:
-    print(f"API error {e.status_code}: {e}")
+    print(e.status_code, e)
 ```
-
----
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in your values:
-
-```
-HAVONA_API_URL=https://api.yourdomain.com
-AUTH0_DOMAIN=your-tenant.us.auth0.com
-AUTH0_AUDIENCE=https://api.yourdomain.com
-AUTH0_CLIENT_ID=your_client_id
-HAVONA_EMAIL=trader@yourdomain.com
-HAVONA_PASSWORD=...
-```
-
----
-
-## Examples
-
-See `examples/` for runnable scripts:
-
-| File | What it shows |
-|------|--------------|
-| `01_get_started.py` | Connect, list trades, check blockchain |
-| `02_create_trade.py` | Full trade lifecycle: create → update → confirm |
-| `03_extract_document.py` | ETR extraction and trade blotting |
-| `04_agent_registry.py` | List agents, inspect reputation |
-
----
+Copy `.env.example` and fill in your values. See `examples/` for runnable scripts.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT
